@@ -1,4 +1,4 @@
-// main.ts (Deno Deploy 用)
+// main.ts
 import { serve } from "https://deno.land/std@0.203.0/http/server.ts";
 
 interface ScrapeResult {
@@ -7,6 +7,7 @@ interface ScrapeResult {
   copyableTexts: string[];
 }
 
+// URL解析関数
 async function scrapeURL(targetUrl: string): Promise<ScrapeResult> {
   try {
     const res = await fetch(targetUrl);
@@ -15,6 +16,7 @@ async function scrapeURL(targetUrl: string): Promise<ScrapeResult> {
     const redirectLinks: string[] = [];
     const copyableTexts: string[] = [];
 
+    // リンク抽出
     const linkRegex = /<a\s+(?:[^>]*?\s+)?href=["']([^"']+)["']/gi;
     let match;
     while ((match = linkRegex.exec(html)) !== null) {
@@ -26,6 +28,7 @@ async function scrapeURL(targetUrl: string): Promise<ScrapeResult> {
       }
     }
 
+    // コピー可能テキスト抽出（5文字以上）
     const textRegex = />([^<]{5,})</gi;
     while ((match = textRegex.exec(html)) !== null) {
       const text = match[1].trim();
@@ -39,15 +42,14 @@ async function scrapeURL(targetUrl: string): Promise<ScrapeResult> {
   }
 }
 
+// サーバー起動
 serve(async (req) => {
   try {
     const urlObj = new URL(req.url);
 
     if (urlObj.pathname === "/scrape") {
       const target = urlObj.searchParams.get("url");
-      if (!target) {
-        return new Response("Missing 'url' query parameter", { status: 400 });
-      }
+      if (!target) return new Response("Missing 'url' query parameter", { status: 400 });
 
       const result = await scrapeURL(target);
       return new Response(JSON.stringify(result), {
