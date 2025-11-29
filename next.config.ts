@@ -6,6 +6,7 @@ interface ScrapeResult {
   copyableTexts: string[];
 }
 
+
 async function scrapeURL(targetUrl: string): Promise<ScrapeResult> {
   try {
     const res = await fetch(targetUrl);
@@ -14,47 +15,61 @@ async function scrapeURL(targetUrl: string): Promise<ScrapeResult> {
     const redirectLinks: string[] = [];
     const copyableTexts: string[] = [];
 
-    // リンク抽出
+    
     const linkRegex = /<a\s+(?:[^>]*?\s+)?href=["']([^"']+)["']/gi;
     let match;
     while ((match = linkRegex.exec(html)) !== null) {
       const href = match[1];
       if (!href.startsWith("javascript:")) {
-        redirectLinks.push(new URL(href, targetUrl).href);
+        try {
+          redirectLinks.push(new URL(href, targetUrl).href);
+        } catch {
+          
+        }
       }
     }
 
-    // コピー可能テキスト抽出
+    
     const textRegex = />([^<]{5,})</gi;
     while ((match = textRegex.exec(html)) !== null) {
       const text = match[1].trim();
       if (text) copyableTexts.push(text);
     }
 
-    // 簡易広告除外: position:fixed / position:absolute のiframeやdivを除外
-    const adRegex = /<iframe[^>]+style=["'][^"']*(position\s*:\s*fixed|position\s*:\s*absolute).*?["']/gi;
-    if (adRegex.test(html)) {
-      // 広告除外ロジックを追加可能
-    }
-
     return { url: targetUrl, redirectLinks, copyableTexts };
   } catch (err) {
-    console.error(err);
+    console.error("scrapeURL error:", err);
     return { url: targetUrl, redirectLinks: [], copyableTexts: [] };
   }
 }
 
+
 serve(async (req) => {
-  const urlParam = new URL(req.url).searchParams.get("url");
-  if (!urlParam) return new Response("Missing 'url' query parameter", { status: 400 });
+  try {
+    const urlObj = new URL(req.url);
 
-  const result = await scrapeURL(urlParam);
-  return new Response(JSON.stringify(result), {
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*" // Neocities からのアクセスを許可
-    },
-  });
-}, { port: 8000 });
+    
+    if (urlObj.pathname === "/scrape") {
+      const target = urlObj.searchParams.get("url");
+      if (!target) {
+        return new Response("Missing 'url' query parameter", { status: 400 });
+      }
 
-console.log("Server running on http://localhost:8000");
+      const result = await scrapeURL(target);
+      return new Response(JSON.stringify(result), {
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        },
+      });
+    }
+
+   
+    return new Response("Server is running.", {
+      headers: { "Content-Type": "text/plain" },
+    });
+  } catch (err) {
+    console.error("Server error:", err);
+    return new Response("Internal Server Error", { status: 500 });
+  }
+});
