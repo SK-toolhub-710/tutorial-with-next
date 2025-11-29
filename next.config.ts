@@ -1,5 +1,5 @@
-// main.ts (Deno Deploy)
-import { serve } from "https://deno.land/std@0.203.0/http/server.ts";
+// pages/api/scrape.ts
+import type { NextApiRequest, NextApiResponse } from "next";
 
 interface ScrapeResult {
   url: string;
@@ -7,62 +7,32 @@ interface ScrapeResult {
   copyableTexts: string[];
 }
 
-// URL解析関数
-async function scrapeURL(targetUrl: string): Promise<ScrapeResult> {
+async function scrapeURL(url: string): Promise<ScrapeResult> {
+  const redirectLinks: string[] = [];
+  const copyableTexts: string[] = [];
   try {
-    const res = await fetch(targetUrl);
+    const res = await fetch(url);
     const html = await res.text();
-
-    const redirectLinks: string[] = [];
-    const copyableTexts: string[] = [];
-
-    // リンク抽出
     const linkRegex = /<a\s+(?:[^>]*?\s+)?href=["']([^"']+)["']/gi;
     let match;
     while ((match = linkRegex.exec(html)) !== null) {
       const href = match[1];
-      if (!href.startsWith("javascript:")) {
-        try {
-          redirectLinks.push(new URL(href, targetUrl).href);
-        } catch {}
-      }
+      if (!href.startsWith("javascript:")) redirectLinks.push(new URL(href, url).href);
     }
-
-    // コピー可能テキスト抽出（5文字以上）
     const textRegex = />([^<]{5,})</gi;
     while ((match = textRegex.exec(html)) !== null) {
       const text = match[1].trim();
       if (text) copyableTexts.push(text);
     }
-
-    return { url: targetUrl, redirectLinks, copyableTexts };
   } catch (err) {
-    console.error("scrapeURL error:", err);
-    return { url: targetUrl, redirectLinks: [], copyableTexts: [] };
+    console.error(err);
   }
+  return { url, redirectLinks, copyableTexts };
 }
 
-// サーバー起動
-serve(async (req) => {
-  try {
-    const urlObj = new URL(req.url);
-
-    if (urlObj.pathname === "/scrape") {
-      const target = urlObj.searchParams.get("url");
-      if (!target) return new Response("Missing 'url' query parameter", { status: 400 });
-
-      const result = await scrapeURL(target);
-      return new Response(JSON.stringify(result), {
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        },
-      });
-    }
-
-    return new Response("Server running", { status: 200 });
-  } catch (err) {
-    console.error("Server error:", err);
-    return new Response("Internal Server Error", { status: 500 });
-  }
-});
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const target = req.query.url as string;
+  if (!target) return res.status(400).json({ error: "Missing url" });
+  const result = await scrapeURL(target);
+  res.status(200).json(result);
+}
