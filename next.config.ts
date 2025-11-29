@@ -1,4 +1,5 @@
-import type { NextApiRequest, NextApiResponse } from "next";
+// main.ts (Deno Deploy 用)
+import { serve } from "https://deno.land/std@0.203.0/http/server.ts";
 
 interface ScrapeResult {
   url: string;
@@ -6,24 +7,14 @@ interface ScrapeResult {
   copyableTexts: string[];
 }
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<ScrapeResult | { error: string }>
-) {
-  const targetUrl = req.query.url as string;
-  if (!targetUrl) {
-    res.status(400).json({ error: "Missing 'url' parameter" });
-    return;
-  }
-
+async function scrapeURL(targetUrl: string): Promise<ScrapeResult> {
   try {
-    const response = await fetch(targetUrl);
-    const html = await response.text();
+    const res = await fetch(targetUrl);
+    const html = await res.text();
 
     const redirectLinks: string[] = [];
     const copyableTexts: string[] = [];
 
-    // <a href=""> リンク抽出
     const linkRegex = /<a\s+(?:[^>]*?\s+)?href=["']([^"']+)["']/gi;
     let match;
     while ((match = linkRegex.exec(html)) !== null) {
@@ -31,23 +22,45 @@ export default async function handler(
       if (!href.startsWith("javascript:")) {
         try {
           redirectLinks.push(new URL(href, targetUrl).href);
-        } catch {
-          // 無効なURLは無視
-        }
+        } catch {}
       }
     }
 
-    // コピー可能テキスト抽出（5文字以上）
     const textRegex = />([^<]{5,})</gi;
     while ((match = textRegex.exec(html)) !== null) {
       const text = match[1].trim();
       if (text) copyableTexts.push(text);
     }
 
-    // 結果を返す
-    res.status(200).json({ url: targetUrl, redirectLinks, copyableTexts });
+    return { url: targetUrl, redirectLinks, copyableTexts };
   } catch (err) {
-    console.error("Scrape error:", err);
-    res.status(500).json({ error: "Failed to fetch or parse URL" });
+    console.error("scrapeURL error:", err);
+    return { url: targetUrl, redirectLinks: [], copyableTexts: [] };
   }
 }
+
+serve(async (req) => {
+  try {
+    const urlObj = new URL(req.url);
+
+    if (urlObj.pathname === "/scrape") {
+      const target = urlObj.searchParams.get("url");
+      if (!target) {
+        return new Response("Missing 'url' query parameter", { status: 400 });
+      }
+
+      const result = await scrapeURL(target);
+      return new Response(JSON.stringify(result), {
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        },
+      });
+    }
+
+    return new Response("Server running", { status: 200 });
+  } catch (err) {
+    console.error("Server error:", err);
+    return new Response("Internal Server Error", { status: 500 });
+  }
+});
